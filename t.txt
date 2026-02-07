@@ -1,0 +1,87 @@
+//@version=6
+indicator("Kane SMT + PO3 [v6]", overlay=true, shorttitle="Kane PO3 v6")
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 1. INPUTS & CONFIGURATION
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+grp_assets = "Assets for SMT Divergence"
+sym1 = input.symbol("CME_MINI:NQ1!", "Symbol 1", group=grp_assets)
+sym2 = input.symbol("CME_MINI:ES1!", "Symbol 2", group=grp_assets)
+
+grp_time = "Time & Session (New York Time)"
+sess     = input.session("0930-1130", "Trading Session", group=grp_time) 
+timezone = input.string("America/New_York", "Timezone", group=grp_time)
+
+grp_strat = "Structure Settings"
+lookback  = input.int(10, "Swing Lookback Length", group=grp_strat)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 2. CALCULATIONS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Check if we are in the allowed time window
+bool inSession = not na(time(timeframe.period, sess, timezone))
+
+// Get High/Low data for SMT calculation
+h1 = request.security(sym1, timeframe.period, high)
+l1 = request.security(sym1, timeframe.period, low)
+h2 = request.security(sym2, timeframe.period, high)
+l2 = request.security(sym2, timeframe.period, low)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 3. PO3 & MANIPULATION LOGIC
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Accumulation Range
+recentHigh = ta.highest(high, lookback)[1]
+recentLow  = ta.lowest(low, lookback)[1]
+
+// Liquidity Sweep (Manipulation)
+bool sweepLow  = low < recentLow and close > low
+bool sweepHigh = high > recentHigh and close < high
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 4. SMT DIVERGENCE LOGIC
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// Bearish SMT: Sym1 makes Higher High, Sym2 fails
+bool bearSMT = (high > recentHigh) and (h2 < ta.highest(h2, lookback)[1])
+
+// Bullish SMT: Sym1 makes Lower Low, Sym2 fails
+bool bullSMT = (low < recentLow) and (l2 > ta.lowest(l2, lookback)[1])
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 5. SIGNALS & TARGETS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+bool validShort = inSession and sweepHigh and bearSMT and close < open
+bool validLong  = inSession and sweepLow and bullSMT and close > open
+
+// Target "50% level of the impulse move"
+var float targetLine = na
+var float stopLine   = na
+
+// NOTICE: These lines are now perfectly aligned
+if validShort
+    float range_move = high - recentLow
+    targetLine := high - (range_move * 0.50)
+    stopLine   := high
+
+if validLong
+    float range_move = recentHigh - low
+    targetLine := low + (range_move * 0.50)
+    stopLine   := low
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 6. VISUALS & ALERTS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+plotshape(validShort, title="SELL Signal", location=location.abovebar, color=color.red, style=shape.triangledown, size=size.small, text="SMT")
+plotshape(validLong, title="BUY Signal", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.small, text="SMT")
+
+plot(targetLine, "50% Target", color=color.blue, style=plot.style_circles)
+plot(stopLine, "Stop Loss", color=color.gray, style=plot.style_cross)
+
+bgcolor(inSession ? color.new(color.blue, 90) : na, title="Trading Session")
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 7. ALERTS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+alertcondition(validShort, title="Kane Short", message="Bearish SMT + PO3 Detected!")
+alertcondition(validLong, title="Kane Long", message="Bullish SMT + PO3 Detected!")
+
