@@ -1,14 +1,16 @@
 //@version=6
-indicator("Kane SMT + PO3 [v6]", overlay=true, shorttitle="Kane PO3 v6")
+indicator("Kane SMT + PO3 [Crypto Ready]", overlay=true, shorttitle="Kane Crypto")
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 1. INPUTS & CONFIGURATION
+// 1. INPUTS (DEFAULTED TO BITCOIN FOR YOU)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 grp_assets = "Assets for SMT Divergence"
-sym1 = input.symbol("CME_MINI:NQ1!", "Symbol 1", group=grp_assets)
-sym2 = input.symbol("CME_MINI:ES1!", "Symbol 2", group=grp_assets)
+// I changed these to BTC/ETH so it works on your chart immediately
+sym1 = input.symbol("BINANCE:BTCUSDT", "Symbol 1 (Main)", group=grp_assets)
+sym2 = input.symbol("BINANCE:ETHUSDT", "Symbol 2 (Reference)", group=grp_assets)
 
 grp_time = "Time & Session (New York Time)"
+// 09:30 to 11:30 AM New York time (The Killzone)
 sess     = input.session("0930-1130", "Trading Session", group=grp_time) 
 timezone = input.string("America/New_York", "Timezone", group=grp_time)
 
@@ -21,14 +23,14 @@ lookback  = input.int(10, "Swing Lookback Length", group=grp_strat)
 // Check if we are in the allowed time window
 bool inSession = not na(time(timeframe.period, sess, timezone))
 
-// Get High/Low data for SMT calculation
+// Get Price Data
 h1 = request.security(sym1, timeframe.period, high)
 l1 = request.security(sym1, timeframe.period, low)
 h2 = request.security(sym2, timeframe.period, high)
 l2 = request.security(sym2, timeframe.period, low)
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 3. PO3 & MANIPULATION LOGIC
+// 3. LOGIC (PO3 + SMT)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Accumulation Range
 recentHigh = ta.highest(high, lookback)[1]
@@ -38,26 +40,23 @@ recentLow  = ta.lowest(low, lookback)[1]
 bool sweepLow  = low < recentLow and close > low
 bool sweepHigh = high > recentHigh and close < high
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 4. SMT DIVERGENCE LOGIC
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Bearish SMT: Sym1 makes Higher High, Sym2 fails
+// SMT Divergence
+// Bearish: BTC High > Prev, but ETH High < Prev
 bool bearSMT = (high > recentHigh) and (h2 < ta.highest(h2, lookback)[1])
-
-// Bullish SMT: Sym1 makes Lower Low, Sym2 fails
+// Bullish: BTC Low < Prev, but ETH Low > Prev
 bool bullSMT = (low < recentLow) and (l2 > ta.lowest(l2, lookback)[1])
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 5. SIGNALS & TARGETS
+// 4. SIGNALS & INDENTATION FIX
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 bool validShort = inSession and sweepHigh and bearSMT and close < open
 bool validLong  = inSession and sweepLow and bullSMT and close > open
 
-// Target "50% level of the impulse move"
+// Target Variables
 var float targetLine = na
 var float stopLine   = na
 
-// NOTICE: These lines are now perfectly aligned
+// --- FIXED SPACING BLOCK BELOW ---
 if validShort
     float range_move = high - recentLow
     targetLine := high - (range_move * 0.50)
@@ -67,21 +66,32 @@ if validLong
     float range_move = recentHigh - low
     targetLine := low + (range_move * 0.50)
     stopLine   := low
+// --------------------------------
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 6. VISUALS & ALERTS
+// 5. VISUALS
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-plotshape(validShort, title="SELL Signal", location=location.abovebar, color=color.red, style=shape.triangledown, size=size.small, text="SMT")
-plotshape(validLong, title="BUY Signal", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.small, text="SMT")
+plotshape(validShort, title="SELL", location=location.abovebar, color=color.red, style=shape.triangledown, size=size.small, text="SMT")
+plotshape(validLong, title="BUY", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.small, text="SMT")
 
 plot(targetLine, "50% Target", color=color.blue, style=plot.style_circles)
 plot(stopLine, "Stop Loss", color=color.gray, style=plot.style_cross)
 
-bgcolor(inSession ? color.new(color.blue, 90) : na, title="Trading Session")
+// Highlight the Killzone
+bgcolor(inSession ? color.new(color.blue, 90) : na, title="Killzone Session")
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 7. ALERTS
+// 6. STATUS DASHBOARD (DEBUGGER)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-alertcondition(validShort, title="Kane Short", message="Bearish SMT + PO3 Detected!")
-alertcondition(validLong, title="Kane Long", message="Bullish SMT + PO3 Detected!")
-
+// This creates a small table to tell you the script is working
+var table statusTable = table.new(position.bottom_right, 2, 3, border_width=1)
+if barstate.islast
+    table.cell(statusTable, 0, 0, "Kane Script Status", bgcolor=color.gray, text_color=color.white)
+    
+    // Row 1: Session Status
+    table.cell(statusTable, 0, 1, "Session (NY Time):", bgcolor=color.black, text_color=color.white)
+    table.cell(statusTable, 1, 1, inSession ? "OPEN (Active)" : "CLOSED", bgcolor=inSession ? color.green : color.red, text_color=color.white)
+    
+    // Row 2: Symbol Check
+    table.cell(statusTable, 0, 2, "Tracking:", bgcolor=color.black, text_color=color.white)
+    table.cell(statusTable, 1, 2, str.tostring(sym1) + " vs " + str.tostring(sym2), bgcolor=color.black, text_color=color.white)
