@@ -1,97 +1,110 @@
-//@version=6
-indicator("Kane SMT + PO3 [Crypto Ready]", overlay=true, shorttitle="Kane Crypto")
+//@version=5
+strategy(
+     "Kane SMT + PO3 — FINAL (All Sessions)",
+     overlay = true,
+     initial_capital = 10000,
+     default_qty_type = strategy.percent_of_equity,
+     default_qty_value = 1,
+     pyramiding = 0,
+     commission_type = strategy.commission.percent,
+     commission_value = 0.04
+)
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 1. INPUTS (DEFAULTED TO BITCOIN FOR YOU)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-grp_assets = "Assets for SMT Divergence"
-// I changed these to BTC/ETH so it works on your chart immediately
-sym1 = input.symbol("BINANCE:BTCUSDT", "Symbol 1 (Main)", group=grp_assets)
-sym2 = input.symbol("BINANCE:ETHUSDT", "Symbol 2 (Reference)", group=grp_assets)
+//━━━━━━━━━━━━━━━━━━━
+// INPUTS (PURE KANE)
+//━━━━━━━━━━━━━━━━━━━
+rr     = input.float(2.0, "Risk : Reward (Base Hit)", step = 0.1)
+po3Len = input.int(20, "PO3 Range Length")
+smtLen = input.int(10, "SMT Lookback")
 
-grp_time = "Time & Session (New York Time)"
-// 09:30 to 11:30 AM New York time (The Killzone)
-sess     = input.session("0930-1130", "Trading Session", group=grp_time) 
-timezone = input.string("America/New_York", "Timezone", group=grp_time)
+//━━━━━━━━━━━━━━━━━━━
+// HIGH TIMEFRAME 50% LEVELS
+//━━━━━━━━━━━━━━━━━━━
+dHigh = request.security(syminfo.tickerid, "D", high)
+dLow  = request.security(syminfo.tickerid, "D", low)
+d50   = (dHigh + dLow) / 2
 
-grp_strat = "Structure Settings"
-lookback  = input.int(10, "Swing Lookback Length", group=grp_strat)
+h4High = request.security(syminfo.tickerid, "240", high)
+h4Low  = request.security(syminfo.tickerid, "240", low)
+h450   = (h4High + h4Low) / 2
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 2. CALCULATIONS
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Check if we are in the allowed time window
-bool inSession = not na(time(timeframe.period, sess, timezone))
+premium  = close > d50 and close > h450
+discount = close < d50 and close < h450
 
-// Get Price Data
-h1 = request.security(sym1, timeframe.period, high)
-l1 = request.security(sym1, timeframe.period, low)
-h2 = request.security(sym2, timeframe.period, high)
-l2 = request.security(sym2, timeframe.period, low)
+//━━━━━━━━━━━━━━━━━━━
+// PO3 STRUCTURE
+//━━━━━━━━━━━━━━━━━━━
+rangeHigh = ta.highest(high, po3Len)
+rangeLow  = ta.lowest(low, po3Len)
+rangeMid  = (rangeHigh + rangeLow) / 2
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 3. LOGIC (PO3 + SMT)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// Accumulation Range
-recentHigh = ta.highest(high, lookback)[1]
-recentLow  = ta.lowest(low, lookback)[1]
+// Liquidity manipulation
+sweepHigh = high > rangeHigh[1]
+sweepLow  = low  < rangeLow[1]
 
-// Liquidity Sweep (Manipulation)
-bool sweepLow  = low < recentLow and close > low
-bool sweepHigh = high > recentHigh and close < high
+// Distribution (reaction back into range)
+distShort = sweepHigh and close < rangeHigh
+distLong  = sweepLow  and close > rangeLow
 
-// SMT Divergence
-// Bearish: BTC High > Prev, but ETH High < Prev
-bool bearSMT = (high > recentHigh) and (h2 < ta.highest(h2, lookback)[1])
-// Bullish: BTC Low < Prev, but ETH Low > Prev
-bool bullSMT = (low < recentLow) and (l2 > ta.lowest(l2, lookback)[1])
+//━━━━━━━━━━━━━━━━━━━
+// SMT DIVERGENCE (BTC vs ETH)
+//━━━━━━━━━━━━━━━━━━━
+btcH = request.security("BINANCE:BTCUSDT", timeframe.period, high)
+ethH = request.security("BINANCE:ETHUSDT", timeframe.period, high)
+btcL = request.security("BINANCE:BTCUSDT", timeframe.period, low)
+ethL = request.security("BINANCE:ETHUSDT", timeframe.period, low)
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 4. SIGNALS & INDENTATION FIX
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-bool validShort = inSession and sweepHigh and bearSMT and close < open
-bool validLong  = inSession and sweepLow and bullSMT and close > open
+// Bearish SMT
+smtBear =
+    ta.highest(btcH, smtLen) > ta.highest(btcH[1], smtLen) and
+    ta.highest(ethH, smtLen) <= ta.highest(ethH[1], smtLen)
 
-// Target Variables
-var float targetLine = na
-var float stopLine   = na
+// Bullish SMT
+smtBull =
+    ta.lowest(btcL, smtLen) < ta.lowest(btcL[1], smtLen) and
+    ta.lowest(ethL, smtLen) >= ta.lowest(ethL[1], smtLen)
 
-// --- FIXED SPACING BLOCK BELOW ---
-if validShort
-    float range_move = high - recentLow
-    targetLine := high - (range_move * 0.50)
-    stopLine   := high
+//━━━━━━━━━━━━━━━━━━━
+// FINAL KANE CONDITIONS
+//━━━━━━━━━━━━━━━━━━━
+shortCond = premium and distShort and smtBear
+longCond  = discount and distLong and smtBull
 
-if validLong
-    float range_move = recentHigh - low
-    targetLine := low + (range_move * 0.50)
-    stopLine   := low
-// --------------------------------
+//━━━━━━━━━━━━━━━━━━━
+// RISK & TARGETS (BASE HIT)
+//━━━━━━━━━━━━━━━━━━━
+shortSL = rangeHigh
+longSL  = rangeLow
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 5. VISUALS
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-plotshape(validShort, title="SELL", location=location.abovebar, color=color.red, style=shape.triangledown, size=size.small, text="SMT")
-plotshape(validLong, title="BUY", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.small, text="SMT")
+shortTP = close - (shortSL - close) * rr
+longTP  = close + (close - longSL) * rr
 
-plot(targetLine, "50% Target", color=color.blue, style=plot.style_circles)
-plot(stopLine, "Stop Loss", color=color.gray, style=plot.style_cross)
+//━━━━━━━━━━━━━━━━━━━
+// EXECUTION
+//━━━━━━━━━━━━━━━━━━━
+if shortCond
+    strategy.entry("KANE SHORT", strategy.short)
+    strategy.exit("KANE SHORT EXIT", "KANE SHORT", stop = shortSL, limit = shortTP)
 
-// Highlight the Killzone
-bgcolor(inSession ? color.new(color.blue, 90) : na, title="Killzone Session")
+if longCond
+    strategy.entry("KANE LONG", strategy.long)
+    strategy.exit("KANE LONG EXIT", "KANE LONG", stop = longSL, limit = longTP)
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 6. STATUS DASHBOARD (DEBUGGER)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// This creates a small table to tell you the script is working
-var table statusTable = table.new(position.bottom_right, 2, 3, border_width=1)
-if barstate.islast
-    table.cell(statusTable, 0, 0, "Kane Script Status", bgcolor=color.gray, text_color=color.white)
-    
-    // Row 1: Session Status
-    table.cell(statusTable, 0, 1, "Session (NY Time):", bgcolor=color.black, text_color=color.white)
-    table.cell(statusTable, 1, 1, inSession ? "OPEN (Active)" : "CLOSED", bgcolor=inSession ? color.green : color.red, text_color=color.white)
-    
-    // Row 2: Symbol Check
-    table.cell(statusTable, 0, 2, "Tracking:", bgcolor=color.black, text_color=color.white)
-    table.cell(statusTable, 1, 2, str.tostring(sym1) + " vs " + str.tostring(sym2), bgcolor=color.black, text_color=color.white)
+//━━━━━━━━━━━━━━━━━━━
+// VISUAL SIGNALS
+//━━━━━━━━━━━━━━━━━━━
+plotshape(longCond,  title="BUY",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.green, 0), size=size.small)
+plotshape(shortCond, title="SELL", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0),   size=size.small)
+
+//━━━━━━━━━━━━━━━━━━━
+// POTENTIAL TP VISUAL
+//━━━━━━━━━━━━━━━━━━━
+plot(longCond  ? longTP  : na, title="Long TP",  color=color.new(color.green, 60), style=plot.style_linebr)
+plot(shortCond ? shortTP : na, title="Short TP", color=color.new(color.red, 60),   style=plot.style_linebr)
+
+//━━━━━━━━━━━━━━━━━━━
+// CONTEXT LEVELS
+//━━━━━━━━━━━━━━━━━━━
+plot(d50,      "Daily 50%", color=color.blue)
+plot(h450,     "4H 50%",    color=color.purple)
+plot(rangeMid, "PO3 Mid",   color=color.gray)
