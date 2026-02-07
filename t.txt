@@ -52,15 +52,11 @@ ethH = request.security("BINANCE:ETHUSDT", timeframe.period, high)
 btcL = request.security("BINANCE:BTCUSDT", timeframe.period, low)
 ethL = request.security("BINANCE:ETHUSDT", timeframe.period, low)
 
-// Bearish SMT
-smtBear =
-    ta.highest(btcH, smtLen) > ta.highest(btcH[1], smtLen) and
-    ta.highest(ethH, smtLen) <= ta.highest(ethH[1], smtLen)
+// Bearish SMT (Fixed Indentation)
+smtBear = ta.highest(btcH, smtLen) > ta.highest(btcH[1], smtLen) and ta.highest(ethH, smtLen) <= ta.highest(ethH[1], smtLen)
 
-// Bullish SMT
-smtBull =
-    ta.lowest(btcL, smtLen) < ta.lowest(btcL[1], smtLen) and
-    ta.lowest(ethL, smtLen) >= ta.lowest(ethL[1], smtLen)
+// Bullish SMT (Fixed Indentation)
+smtBull = ta.lowest(btcL, smtLen) < ta.lowest(btcL[1], smtLen) and ta.lowest(ethL, smtLen) >= ta.lowest(ethL[1], smtLen)
 
 //━━━━━━━━━━━━━━━━━━━
 // FINAL KANE CONDITIONS
