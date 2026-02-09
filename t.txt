@@ -1,104 +1,23 @@
 //@version=5
-strategy("Kane SMT + PO3 — FINAL (All Sessions)",
-     overlay=true,
-     initial_capital=10000,
-     default_qty_type=strategy.percent_of_equity,
-     default_qty_value=1,
-     pyramiding=0,
-     commission_type=strategy.commission.percent,
-     commission_value=0.04)
+indicator("2026 Strategy: Auto 4H Zones", overlay=true)
 
-//━━━━━━━━━━━━━━━━━━━
-// INPUTS (PURE KANE)
-//━━━━━━━━━━━━━━━━━━━
-rr     = input.float(2.0, "Risk : Reward (Base Hit)", step=0.1)
-po3Len = input.int(20, "PO3 Range Length")
-smtLen = input.int(10, "SMT Lookback")
+// --- Settings ---
+htf_timeframe = input.timeframe("240", "Higher Timeframe (4H)") // 240 min = 4 Hours
+lookback      = input.int(10, "Pivot Lookback (Sensitivity)")    // Higher = Finds only big peaks
+use_ha        = input.bool(true, "Use Heikin Ashi?")             // As per your rule
 
-//━━━━━━━━━━━━━━━━━━━
-// HIGH TIMEFRAME 50% LEVELS
-//━━━━━━━━━━━━━━━━━━━
-dHigh = request.security(syminfo.tickerid, "D", high)
-dLow  = request.security(syminfo.tickerid, "D", low)
-d50   = (dHigh + dLow) / 2
+// --- 1. Get 4H Data (Standard or Heikin Ashi) ---
+var symbol_to_get = use_ha ? ticker.heikinashi(syminfo.tickerid) : syminfo.tickerid
 
-h4High = request.security(syminfo.tickerid, "240", high)
-h4Low  = request.security(syminfo.tickerid, "240", low)
-h450   = (h4High + h4Low) / 2
+// --- 2. Find Highs & Lows inside the 4H Data ---
+// We ask the script: "Go to 4H, find the Pivot Highs/Lows"
+[h_high, h_low] = request.security(symbol_to_get, htf_timeframe, [ta.pivothigh(high, lookback, lookback), ta.pivotlow(low, lookback, lookback)])
 
-premium  = close > d50 and close > h450
-discount = close < d50 and close < h450
+// --- 3. Draw the Lines (Visuals) ---
+// When a new 4H Resistance is found, draw a RED line
+if not na(h_high)
+    line.new(bar_index, h_high, bar_index + 100, h_high, color=color.red, style=line.style_solid, width=2)
 
-//━━━━━━━━━━━━━━━━━━━
-// PO3 STRUCTURE
-//━━━━━━━━━━━━━━━━━━━
-rangeHigh = ta.highest(high, po3Len)
-rangeLow  = ta.lowest(low, po3Len)
-rangeMid  = (rangeHigh + rangeLow) / 2
-
-// Liquidity sweep
-sweepHigh = high > rangeHigh[1]
-sweepLow  = low  < rangeLow[1]
-
-// Distribution (reaction)
-distShort = sweepHigh and close < rangeHigh
-distLong  = sweepLow  and close > rangeLow
-
-//━━━━━━━━━━━━━━━━━━━
-// SMT DIVERGENCE (BTC vs ETH)
-//━━━━━━━━━━━━━━━━━━━
-btcH = request.security("BINANCE:BTCUSDT", timeframe.period, high)
-ethH = request.security("BINANCE:ETHUSDT", timeframe.period, high)
-btcL = request.security("BINANCE:BTCUSDT", timeframe.period, low)
-ethL = request.security("BINANCE:ETHUSDT", timeframe.period, low)
-
-// Bearish SMT (Fixed Indentation)
-smtBear = ta.highest(btcH, smtLen) > ta.highest(btcH[1], smtLen) and ta.highest(ethH, smtLen) <= ta.highest(ethH[1], smtLen)
-
-// Bullish SMT (Fixed Indentation)
-smtBull = ta.lowest(btcL, smtLen) < ta.lowest(btcL[1], smtLen) and ta.lowest(ethL, smtLen) >= ta.lowest(ethL[1], smtLen)
-
-//━━━━━━━━━━━━━━━━━━━
-// FINAL KANE CONDITIONS
-//━━━━━━━━━━━━━━━━━━━
-shortCond = premium and distShort and smtBear
-longCond  = discount and distLong and smtBull
-
-//━━━━━━━━━━━━━━━━━━━
-// RISK & TARGETS (BASE HIT)
-//━━━━━━━━━━━━━━━━━━━
-shortSL = rangeHigh
-longSL  = rangeLow
-
-shortTP = close - (shortSL - close) * rr
-longTP  = close + (close - longSL) * rr
-
-//━━━━━━━━━━━━━━━━━━━
-// EXECUTION
-//━━━━━━━━━━━━━━━━━━━
-if shortCond
-    strategy.entry("KANE SHORT", strategy.short)
-    strategy.exit("KANE SHORT EXIT", "KANE SHORT", stop=shortSL, limit=shortTP)
-
-if longCond
-    strategy.entry("KANE LONG", strategy.long)
-    strategy.exit("KANE LONG EXIT", "KANE LONG", stop=longSL, limit=longTP)
-
-//━━━━━━━━━━━━━━━━━━━
-// VISUAL SIGNALS
-//━━━━━━━━━━━━━━━━━━━
-plotshape(longCond,  title="BUY",  style=shape.triangleup,   location=location.belowbar, color=color.new(color.green, 0), size=size.small)
-plotshape(shortCond, title="SELL", style=shape.triangledown, location=location.abovebar, color=color.new(color.red, 0),   size=size.small)
-
-//━━━━━━━━━━━━━━━━━━━
-// POTENTIAL TP VISUAL
-//━━━━━━━━━━━━━━━━━━━
-plot(longCond  ? longTP  : na, title="Long TP",  color=color.new(color.green, 60), style=plot.style_linebr)
-plot(shortCond ? shortTP : na, title="Short TP", color=color.new(color.red, 60),   style=plot.style_linebr)
-
-//━━━━━━━━━━━━━━━━━━━
-// CONTEXT LEVELS
-//━━━━━━━━━━━━━━━━━━━
-plot(d50,      "Daily 50%", color=color.blue)
-plot(h450,     "4H 50%",    color=color.purple)
-plot(rangeMid, "PO3 Mid",   color=color.gray)
+// When a new 4H Support is found, draw a GREEN line
+if not na(h_low)
+    line.new(bar_index, h_low, bar_index + 100, h_low, color=color.green, style=line.style_solid, width=2)
