@@ -1,109 +1,76 @@
 //@version=5
-strategy("2026 Strategy: Clean 4H Steps", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=2)
+indicator("HTF 4H Zones + LTF Structure (Visual Only)", overlay=true)
 
-// ==========================================
-// 1. SETTINGS
-// ==========================================
-htf_timeframe = input.timeframe("240", "HTF Zone Timeframe") // 240 mins = 4 Hours
-htf_sensitivity = input.int(2, "HTF Zone Sensitivity") 
-use_ha = input.bool(true, "Use Heikin Ashi for Zones?")
+// ─── INPUTS ─────────────────────────────────────────────
+htfTF        = input.timeframe("240", "Higher Timeframe")
+zonePercent  = input.float(0.15, "Zone Size (%)", step=0.05)
+showStructure = input.bool(true, "Show LTF Structure Breaks")
 
-length = input.int(5, "Structure Lookback (Pivots)")
-show_labels = input.bool(true, "Show BoS/CHoCH Labels")
-rr_ratio = input.float(2.0, "Risk:Reward Ratio")
+// ─── HTF DATA ────────────────────────────────────────────
+htfHigh = request.security(syminfo.tickerid, htfTF, high)
+htfLow  = request.security(syminfo.tickerid, htfTF, low)
 
-// ==========================================
-// 2. HTF ZONES (Short 4H Segments)
-// ==========================================
-var symbol_to_get = use_ha ? ticker.heikinashi(syminfo.tickerid) : syminfo.tickerid
-[h_high, h_low, h_time] = request.security(symbol_to_get, htf_timeframe, [ta.pivothigh(high, htf_sensitivity, htf_sensitivity), ta.pivotlow(low, htf_sensitivity, htf_sensitivity), time])
+// ─── ZONE CALCULATIONS ──────────────────────────────────
+padHigh = htfHigh * (zonePercent / 100)
+padLow  = htfLow * (zonePercent / 100)
 
-var float active_resistance = na
-var float active_support = na
+supplyTop    = htfHigh + padHigh
+supplyBottom = htfHigh - padHigh
 
-// CONSTANT: 4 Hours in Milliseconds
-// 1000 ms * 60 sec * 60 min * 4 hours = 14,400,000
-four_hours_ms = 14400000 
+demandTop    = htfLow + padLow
+demandBottom = htfLow - padLow
 
-if not na(h_high)
-    active_resistance := h_high
-    // Draw Red Line ONLY for the duration of that 4H candle
-    line.new(x1=h_time[htf_sensitivity], y1=h_high, x2=h_time[htf_sensitivity] + four_hours_ms, y2=h_high, xloc=xloc.bar_time, color=color.new(color.red, 30), style=line.style_solid, width=2)
+// ─── DRAW ZONES ─────────────────────────────────────────
+var box supplyBox = na
+var box demandBox = na
 
-if not na(h_low)
-    active_support := h_low
-    // Draw Green Line ONLY for the duration of that 4H candle
-    line.new(x1=h_time[htf_sensitivity], y1=h_low, x2=h_time[htf_sensitivity] + four_hours_ms, y2=h_low, xloc=xloc.bar_time, color=color.new(color.green, 30), style=line.style_solid, width=2)
+if barstate.islast
+    box.delete(supplyBox)
+    box.delete(demandBox)
 
-// ==========================================
-// 3. SMC STRUCTURE (BoS / CHoCH)
-// ==========================================
-ph = ta.pivothigh(high, length, length)
-pl = ta.pivotlow(low, length, length)
+    supplyBox := box.new(
+        left=bar_index - 200,
+        right=bar_index + 200,
+        top=supplyTop,
+        bottom=supplyBottom,
+        bgcolor=color.new(color.red, 85),
+        border_color=color.red
+    )
 
-var float prev_high = na
-var float prev_low = na
-var int prev_high_index = na
-var int prev_low_index = na
+    demandBox := box.new(
+        left=bar_index - 200,
+        right=bar_index + 200,
+        top=demandTop,
+        bottom=demandBottom,
+        bgcolor=color.new(color.green, 85),
+        border_color=color.green
+    )
 
-if not na(ph)
-    prev_high := high[length]
-    prev_high_index := bar_index[length]
-if not na(pl)
-    prev_low := low[length]
-    prev_low_index := bar_index[length]
+// ─── ZONE TAP VISUAL ────────────────────────────────────
+inSupply = high >= supplyBottom and high <= supplyTop
+inDemand = low <= demandTop and low >= demandBottom
 
-break_up = ta.crossover(close, prev_high)
-break_down = ta.crossunder(close, prev_low)
+bgcolor(inSupply ? color.new(color.red, 92) : na)
+bgcolor(inDemand ? color.new(color.green, 92) : na)
 
-col_bull = #00bcd4
-col_bear = #ff5252
+// ─── LTF STRUCTURE BREAK (OPTIONAL) ─────────────────────
+var float lastHigh = na
+var float lastLow  = na
 
-if break_up and not na(prev_high)
-    line.new(x1=prev_high_index, y1=prev_high, x2=bar_index, y2=prev_high, color=col_bull, style=line.style_solid, width=1)
-    if show_labels
-        label.new(x=bar_index, y=prev_high, text="BoS", style=label.style_none, textcolor=col_bull, size=size.small)
+if showStructure
+    if high > high[1]
+        lastHigh := high
+    if low < low[1]
+        lastLow := low
 
-if break_down and not na(prev_low)
-    line.new(x1=prev_low_index, y1=prev_low, x2=bar_index, y2=prev_low, color=col_bear, style=line.style_solid, width=1)
-    if show_labels
-        label.new(x=bar_index, y=prev_low, text="BoS", style=label.style_none, textcolor=col_bear, size=size.small)
+    bullBreak = close > lastHigh[1]
+    bearBreak = close < lastLow[1]
 
-// ==========================================
-// 4. STRATEGY EXECUTION
-// ==========================================
-tolerance = close * 0.002
-var bool ready_for_long = false
-var bool ready_for_short = false
+    plotshape(bullBreak, style=shape.triangleup, location=location.belowbar,
+        color=color.green, size=size.tiny, title="Bullish Structure Break")
 
-// Important Note: Even though the VISUAL line stops after 4 hours, 
-// the STRATEGY remembers the price level until a new one forms.
-if not na(active_support) and (low <= active_support + tolerance) and (low >= active_support - tolerance)
-    ready_for_long := true
-    ready_for_short := false 
-
-if not na(active_resistance) and (high >= active_resistance - tolerance) and (high <= active_resistance + tolerance)
-    ready_for_short := true
-    ready_for_long := false 
-
-long_entry = ready_for_long and break_up
-short_entry = ready_for_short and break_down
-
-if long_entry
-    stop_loss = prev_low 
-    risk = close - stop_loss
-    target = close + (risk * rr_ratio)
-    if risk > 0
-        strategy.entry("Long", strategy.long)
-        strategy.exit("Exit Long", "Long", stop=stop_loss, limit=target)
-        ready_for_long := false 
-        label.new(bar_index, low, "ENTRY", color=col_bull, style=label.style_label_up, textcolor=color.white)
-
-if short_entry
-    stop_loss = prev_high
-    risk = stop_loss - close
-    target = close - (risk * rr_ratio)
-    if risk > 0
+    plotshape(bearBreak, style=shape.triangledown, location=location.abovebar,
+        color=color.red, size=size.tiny, title="Bearish Structure Break")    if risk > 0
         strategy.entry("Short", strategy.short)
         strategy.exit("Exit Short", "Short", stop=stop_loss, limit=target)
         ready_for_short := false 
