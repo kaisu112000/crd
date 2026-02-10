@@ -1,26 +1,25 @@
 //@version=5
 indicator("HTF 4H Zones + LTF Structure (Visual Only)", overlay=true)
 
-// ─── INPUTS ─────────────────────────────────────────────
-htfTF        = input.timeframe("240", "Higher Timeframe")
-zonePercent  = input.float(0.15, "Zone Size (%)", step=0.05)
+// INPUTS
+htfTF         = input.timeframe("240", "Higher Timeframe")
+zonePercent   = input.float(0.15, "Zone Size (%)", step=0.05)
 showStructure = input.bool(true, "Show LTF Structure Breaks")
 
-// ─── HTF DATA ────────────────────────────────────────────
+// HTF DATA
 htfHigh = request.security(syminfo.tickerid, htfTF, high)
 htfLow  = request.security(syminfo.tickerid, htfTF, low)
 
-// ─── ZONE CALCULATIONS ──────────────────────────────────
+// ZONE CALC
 padHigh = htfHigh * (zonePercent / 100)
 padLow  = htfLow * (zonePercent / 100)
 
 supplyTop    = htfHigh + padHigh
 supplyBottom = htfHigh - padHigh
-
 demandTop    = htfLow + padLow
 demandBottom = htfLow - padLow
 
-// ─── DRAW ZONES ─────────────────────────────────────────
+// DRAW ZONES
 var box supplyBox = na
 var box demandBox = na
 
@@ -28,32 +27,17 @@ if barstate.islast
     box.delete(supplyBox)
     box.delete(demandBox)
 
-    supplyBox := box.new(
-        left=bar_index - 200,
-        right=bar_index + 200,
-        top=supplyTop,
-        bottom=supplyBottom,
-        bgcolor=color.new(color.red, 85),
-        border_color=color.red
-    )
+    supplyBox := box.new(bar_index - 200, supplyTop, bar_index + 200, supplyBottom, bgcolor=color.new(color.red, 85), border_color=color.red)
+    demandBox := box.new(bar_index - 200, demandTop, bar_index + 200, demandBottom, bgcolor=color.new(color.green, 85), border_color=color.green)
 
-    demandBox := box.new(
-        left=bar_index - 200,
-        right=bar_index + 200,
-        top=demandTop,
-        bottom=demandBottom,
-        bgcolor=color.new(color.green, 85),
-        border_color=color.green
-    )
-
-// ─── ZONE TAP VISUAL ────────────────────────────────────
+// ZONE TAP VISUAL
 inSupply = high >= supplyBottom and high <= supplyTop
 inDemand = low <= demandTop and low >= demandBottom
 
 bgcolor(inSupply ? color.new(color.red, 92) : na)
 bgcolor(inDemand ? color.new(color.green, 92) : na)
 
-// ─── LTF STRUCTURE BREAK (OPTIONAL) ─────────────────────
+// LTF STRUCTURE BREAK (VISUAL ONLY)
 var float lastHigh = na
 var float lastLow  = na
 
@@ -66,12 +50,5 @@ if showStructure
     bullBreak = close > lastHigh[1]
     bearBreak = close < lastLow[1]
 
-    plotshape(bullBreak, style=shape.triangleup, location=location.belowbar,
-        color=color.green, size=size.tiny, title="Bullish Structure Break")
-
-    plotshape(bearBreak, style=shape.triangledown, location=location.abovebar,
-        color=color.red, size=size.tiny, title="Bearish Structure Break")    if risk > 0
-        strategy.entry("Short", strategy.short)
-        strategy.exit("Exit Short", "Short", stop=stop_loss, limit=target)
-        ready_for_short := false 
-        label.new(bar_index, high, "ENTRY", color=col_bear, style=label.style_label_down, textcolor=color.white)
+    plotshape(bullBreak, style=shape.triangleup, location=location.belowbar, color=color.green, size=size.tiny)
+    plotshape(bearBreak, style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny)
