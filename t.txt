@@ -27,11 +27,8 @@ var box demandBox = na
 if barstate.islast
     box.delete(supplyBox)
     box.delete(demandBox)
-    
-    // Fixed: formatting to prevent "Mismatched input" error
+    // FIX 1: Put parameters on one line to prevent "Mismatched Input" errors
     supplyBox := box.new(left=bar_index - 200, right=bar_index + 200, top=supplyTop, bottom=supplyBottom, bgcolor=color.new(color.red, 85), border_color=color.red)
-
-    // Fixed: formatting to prevent "Mismatched input" error
     demandBox := box.new(left=bar_index - 200, right=bar_index + 200, top=demandTop, bottom=demandBottom, bgcolor=color.new(color.green, 85), border_color=color.green)
 
 // ─── ZONE TAP VISUAL ────────────────────────────────────
@@ -41,18 +38,19 @@ inDemand = low <= demandTop and low >= demandBottom
 bgcolor(inSupply ? color.new(color.red, 92) : na)
 bgcolor(inDemand ? color.new(color.green, 92) : na)
 
-// ─── LTF STRUCTURE BREAK (OPTIONAL) ─────────────────────
+// ─── LTF STRUCTURE BREAK ────────────────────────────────
 var float lastHigh = na
 var float lastLow  = na
 
-if showStructure
-    if high > high[1]
-        lastHigh := high
-    if low < low[1]
-        lastLow := low
+// FIX 2: Move logic OUTSIDE the 'if' block so 'plotshape' can see the variables
+if high > high[1]
+    lastHigh := high
+if low < low[1]
+    lastLow := low
 
-    bullBreak = close > lastHigh[1]
-    bearBreak = close < lastLow[1]
+bullBreak = close > lastHigh[1]
+bearBreak = close < lastLow[1]
 
-    plotshape(bullBreak, style=shape.triangleup, location=location.belowbar, color=color.green, size=size.tiny, title="Bullish Structure Break")
-    plotshape(bearBreak, style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny, title="Bearish Structure Break")
+// FIX 3: 'plotshape' must be in global scope. We check 'showStructure' here instead.
+plotshape(showStructure and bullBreak, style=shape.triangleup, location=location.belowbar, color=color.green, size=size.tiny, title="Bullish Structure Break")
+plotshape(showStructure and bearBreak, style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny, title="Bearish Structure Break")
