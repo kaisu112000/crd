@@ -1,91 +1,110 @@
 //@version=5
-strategy("2026 Strategy: Auto Zones + Signals", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=2)
+strategy("2026 Strategy: Clean 4H Steps", overlay=true, initial_capital=10000, default_qty_type=strategy.percent_of_equity, default_qty_value=2)
 
 // ==========================================
 // 1. SETTINGS
 // ==========================================
-htf_timeframe = input.timeframe("240", "Higher Timeframe (Zones)")
-use_ha        = input.bool(true, "Use Heikin Ashi for Zones?")
-htf_lookback  = input.int(20, "HTF Pivot Lookback")
-ltf_lookback  = input.int(5, "LTF Entry Pivot Lookback")
-rr_ratio      = input.float(2.0, "Risk:Reward Ratio")
+htf_timeframe = input.timeframe("240", "HTF Zone Timeframe") // 240 mins = 4 Hours
+htf_sensitivity = input.int(2, "HTF Zone Sensitivity") 
+use_ha = input.bool(true, "Use Heikin Ashi for Zones?")
+
+length = input.int(5, "Structure Lookback (Pivots)")
+show_labels = input.bool(true, "Show BoS/CHoCH Labels")
+rr_ratio = input.float(2.0, "Risk:Reward Ratio")
 
 // ==========================================
-// 2. MARK ZONES (FIXED & VISIBLE)
+// 2. HTF ZONES (Short 4H Segments)
 // ==========================================
 var symbol_to_get = use_ha ? ticker.heikinashi(syminfo.tickerid) : syminfo.tickerid
-[h_high, h_low, h_time] = request.security(symbol_to_get, htf_timeframe, [ta.pivothigh(high, htf_lookback, htf_lookback), ta.pivotlow(low, htf_lookback, htf_lookback), time])
+[h_high, h_low, h_time] = request.security(symbol_to_get, htf_timeframe, [ta.pivothigh(high, htf_sensitivity, htf_sensitivity), ta.pivotlow(low, htf_sensitivity, htf_sensitivity), time])
 
 var float active_resistance = na
-var float active_support    = na
+var float active_support = na
+
+// CONSTANT: 4 Hours in Milliseconds
+// 1000 ms * 60 sec * 60 min * 4 hours = 14,400,000
+four_hours_ms = 14400000 
 
 if not na(h_high)
     active_resistance := h_high
-    line.new(x1=h_time[htf_lookback], y1=h_high, x2=time + (86400 * 50), y2=h_high, xloc=xloc.bar_time, color=color.new(color.red, 20), style=line.style_solid, width=2)
+    // Draw Red Line ONLY for the duration of that 4H candle
+    line.new(x1=h_time[htf_sensitivity], y1=h_high, x2=h_time[htf_sensitivity] + four_hours_ms, y2=h_high, xloc=xloc.bar_time, color=color.new(color.red, 30), style=line.style_solid, width=2)
 
 if not na(h_low)
     active_support := h_low
-    line.new(x1=h_time[htf_lookback], y1=h_low, x2=time + (86400 * 50), y2=h_low, xloc=xloc.bar_time, color=color.new(color.green, 20), style=line.style_solid, width=2)
+    // Draw Green Line ONLY for the duration of that 4H candle
+    line.new(x1=h_time[htf_sensitivity], y1=h_low, x2=h_time[htf_sensitivity] + four_hours_ms, y2=h_low, xloc=xloc.bar_time, color=color.new(color.green, 30), style=line.style_solid, width=2)
 
 // ==========================================
-// 3. WAIT FOR ZONE TAP
+// 3. SMC STRUCTURE (BoS / CHoCH)
+// ==========================================
+ph = ta.pivothigh(high, length, length)
+pl = ta.pivotlow(low, length, length)
+
+var float prev_high = na
+var float prev_low = na
+var int prev_high_index = na
+var int prev_low_index = na
+
+if not na(ph)
+    prev_high := high[length]
+    prev_high_index := bar_index[length]
+if not na(pl)
+    prev_low := low[length]
+    prev_low_index := bar_index[length]
+
+break_up = ta.crossover(close, prev_high)
+break_down = ta.crossunder(close, prev_low)
+
+col_bull = #00bcd4
+col_bear = #ff5252
+
+if break_up and not na(prev_high)
+    line.new(x1=prev_high_index, y1=prev_high, x2=bar_index, y2=prev_high, color=col_bull, style=line.style_solid, width=1)
+    if show_labels
+        label.new(x=bar_index, y=prev_high, text="BoS", style=label.style_none, textcolor=col_bull, size=size.small)
+
+if break_down and not na(prev_low)
+    line.new(x1=prev_low_index, y1=prev_low, x2=bar_index, y2=prev_low, color=col_bear, style=line.style_solid, width=1)
+    if show_labels
+        label.new(x=bar_index, y=prev_low, text="BoS", style=label.style_none, textcolor=col_bear, size=size.small)
+
+// ==========================================
+// 4. STRATEGY EXECUTION
 // ==========================================
 tolerance = close * 0.002
-var bool looking_for_long = false
-var bool looking_for_short = false
+var bool ready_for_long = false
+var bool ready_for_short = false
 
+// Important Note: Even though the VISUAL line stops after 4 hours, 
+// the STRATEGY remembers the price level until a new one forms.
 if not na(active_support) and (low <= active_support + tolerance) and (low >= active_support - tolerance)
-    looking_for_long := true
-    looking_for_short := false 
+    ready_for_long := true
+    ready_for_short := false 
 
 if not na(active_resistance) and (high >= active_resistance - tolerance) and (high <= active_resistance + tolerance)
-    looking_for_short := true
-    looking_for_long := false 
+    ready_for_short := true
+    ready_for_long := false 
 
-// ==========================================
-// 4. CONFIRMATION (CONSOLIDATION BREAK)
-// ==========================================
-ltf_high = ta.pivothigh(high, ltf_lookback, ltf_lookback)
-ltf_low  = ta.pivotlow(low, ltf_lookback, ltf_lookback)
+long_entry = ready_for_long and break_up
+short_entry = ready_for_short and break_down
 
-var float recent_ltf_structure_high = na
-var float recent_ltf_structure_low  = na
-
-if not na(ltf_high)
-    recent_ltf_structure_high := high[ltf_lookback]
-if not na(ltf_low)
-    recent_ltf_structure_low  := low[ltf_lookback]
-
-// The Triggers
-long_trigger  = looking_for_long and ta.crossover(close, recent_ltf_structure_high)
-short_trigger = looking_for_short and ta.crossunder(close, recent_ltf_structure_low)
-
-// ==========================================
-// 5. ENTRY, EXITS & VISUAL SIGNALS
-// ==========================================
-
-if (long_trigger)
-    stop_loss = recent_ltf_structure_low
-    entry_price = close
-    risk = entry_price - stop_loss
-    take_profit = entry_price + (risk * rr_ratio)
-    
+if long_entry
+    stop_loss = prev_low 
+    risk = close - stop_loss
+    target = close + (risk * rr_ratio)
     if risk > 0
         strategy.entry("Long", strategy.long)
-        strategy.exit("Exit Long", "Long", stop=stop_loss, limit=take_profit)
-        looking_for_long := false 
+        strategy.exit("Exit Long", "Long", stop=stop_loss, limit=target)
+        ready_for_long := false 
+        label.new(bar_index, low, "ENTRY", color=col_bull, style=label.style_label_up, textcolor=color.white)
 
-if (short_trigger)
-    stop_loss = recent_ltf_structure_high
-    entry_price = close
-    risk = stop_loss - entry_price
-    take_profit = entry_price - (risk * rr_ratio)
-
+if short_entry
+    stop_loss = prev_high
+    risk = stop_loss - close
+    target = close - (risk * rr_ratio)
     if risk > 0
         strategy.entry("Short", strategy.short)
-        strategy.exit("Exit Short", "Short", stop=stop_loss, limit=take_profit)
-        looking_for_short := false
-
-// === PRINT BUY/SELL LABELS ===
-plotshape(long_trigger, title="Buy Signal", text="BUY", style=shape.labelup, location=location.belowbar, color=color.green, textcolor=color.white, size=size.small)
-plotshape(short_trigger, title="Sell Signal", text="SELL", style=shape.labeldown, location=location.abovebar, color=color.red, textcolor=color.white, size=size.small)
+        strategy.exit("Exit Short", "Short", stop=stop_loss, limit=target)
+        ready_for_short := false 
+        label.new(bar_index, high, "ENTRY", color=col_bear, style=label.style_label_down, textcolor=color.white)
