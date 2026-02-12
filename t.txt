@@ -1,56 +1,95 @@
 //@version=5
-indicator("HTF 4H Zones + LTF Structure (Visual Only)", overlay=true)
+indicator("SMC Liquidity Pro (Final Clean Version)", overlay=true, max_labels_count=500)
 
-// ─── INPUTS ─────────────────────────────────────────────
-htfTF        = input.timeframe("240", "Higher Timeframe")
-zonePercent  = input.float(0.15, "Zone Size (%)", step=0.05)
-showStructure = input.bool(true, "Show LTF Structure Breaks")
+// ==========================
+// 1. INPUTS
+// ==========================
 
-// ─── HTF DATA ────────────────────────────────────────────
-htfHigh = request.security(syminfo.tickerid, htfTF, high)
-htfLow  = request.security(syminfo.tickerid, htfTF, low)
+prd               = input.int(10, "Pivot Period", minval=2)
+rr                = input.float(2.0, "Risk Reward", minval=1)
+minSweepTicks     = input.int(5, "Minimum Sweep (ticks)")
+htf_tf            = input.timeframe("60", "HTF Bias Timeframe")
+htf_ema_len       = input.int(50, "HTF EMA Length")
+showSLTP          = input.bool(true, "Show SL / TP Lines")
+showSignals       = input.bool(true, "Show Buy / Sell Labels")
 
-// ─── ZONE CALCULATIONS ──────────────────────────────────
-padHigh = htfHigh * (zonePercent / 100)
-padLow  = htfLow * (zonePercent / 100)
+minSweep = minSweepTicks * syminfo.mintick
 
-supplyTop    = htfHigh + padHigh
-supplyBottom = htfHigh - padHigh
+// ==========================
+// 2. HTF BIAS
+// ==========================
 
-demandTop    = htfLow + padLow
-demandBottom = htfLow - padLow
+htf_close = request.security(syminfo.tickerid, htf_tf, close)
+htf_ema   = request.security(syminfo.tickerid, htf_tf, ta.ema(close, htf_ema_len))
 
-// ─── DRAW ZONES ─────────────────────────────────────────
-var box supplyBox = na
-var box demandBox = na
+bull_bias = htf_close > htf_ema
+bear_bias = htf_close < htf_ema
 
-if barstate.islast
-    box.delete(supplyBox)
-    box.delete(demandBox)
-    // FIX 1: Put parameters on one line to prevent "Mismatched Input" errors
-    supplyBox := box.new(left=bar_index - 200, right=bar_index + 200, top=supplyTop, bottom=supplyBottom, bgcolor=color.new(color.red, 85), border_color=color.red)
-    demandBox := box.new(left=bar_index - 200, right=bar_index + 200, top=demandTop, bottom=demandBottom, bgcolor=color.new(color.green, 85), border_color=color.green)
+// ==========================
+// 3. LIQUIDITY (PIVOTS)
+// ==========================
 
-// ─── ZONE TAP VISUAL ────────────────────────────────────
-inSupply = high >= supplyBottom and high <= supplyTop
-inDemand = low <= demandTop and low >= demandBottom
+ph = ta.pivothigh(high, prd, prd)
+pl = ta.pivotlow(low, prd, prd)
 
-bgcolor(inSupply ? color.new(color.red, 92) : na)
-bgcolor(inDemand ? color.new(color.green, 92) : na)
-
-// ─── LTF STRUCTURE BREAK ────────────────────────────────
 var float lastHigh = na
 var float lastLow  = na
 
-// FIX 2: Move logic OUTSIDE the 'if' block so 'plotshape' can see the variables
-if high > high[1]
-    lastHigh := high
-if low < low[1]
-    lastLow := low
+if not na(ph)
+    lastHigh := ph
 
-bullBreak = close > lastHigh[1]
-bearBreak = close < lastLow[1]
+if not na(pl)
+    lastLow := pl
 
-// FIX 3: 'plotshape' must be in global scope. We check 'showStructure' here instead.
-plotshape(showStructure and bullBreak, style=shape.triangleup, location=location.belowbar, color=color.green, size=size.tiny, title="Bullish Structure Break")
-plotshape(showStructure and bearBreak, style=shape.triangledown, location=location.abovebar, color=color.red, size=size.tiny, title="Bearish Structure Break")
+// ==========================
+// 4. BUY MODEL
+// Sweep low + reclaim + displacement + HTF bias
+// ==========================
+
+sweepLow        = low < lastLow
+strongSweepLow  = (lastLow - low) >= minSweep
+reclaimLow      = close > lastLow
+displacementUp  = close > high[1]
+
+buySignal = sweepLow and strongSweepLow and reclaimLow and displacementUp and bull_bias
+
+// ==========================
+// 5. SELL MODEL
+// Sweep high + reclaim + displacement + HTF bias
+// ==========================
+
+sweepHigh        = high > lastHigh
+strongSweepHigh  = (high - lastHigh) >= minSweep
+reclaimHigh      = close < lastHigh
+displacementDown = close < low[1]
+
+sellSignal = sweepHigh and strongSweepHigh and reclaimHigh and displacementDown and bear_bias
+
+// ==========================
+// 6. EXECUTION VISUALS
+// ==========================
+
+if buySignal
+    entry = close
+    sl    = low
+    tp    = entry + (entry - sl) * rr
+
+    if showSignals
+        label.new(bar_index, low, "BUY", style=label.style_label_up, color=color.green, textcolor=color.white)
+
+    if showSLTP
+        line.new(bar_index, sl, bar_index+15, sl, color=color.red)
+        line.new(bar_index, tp, bar_index+15, tp, color=color.green)
+
+
+if sellSignal
+    entry = close
+    sl    = high
+    tp    = entry - (sl - entry) * rr
+
+    if showSignals
+        label.new(bar_index, high, "SELL", style=label.style_label_down, color=color.red, textcolor=color.white)
+
+    if showSLTP
+        line.new(bar_index, sl, bar_index+15, sl, color=color.red)
+        line.new(bar_index, tp, bar_index+15, tp, color=color.green)
