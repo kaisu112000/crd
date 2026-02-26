@@ -32,7 +32,7 @@ def run_batch(batch):
     input_data = "\n".join(batch) + "\n\n"
 
     result = subprocess.run(
-        ["python3.12", "run.py"],
+        ["python3.12", "new.py"],
         input=input_data,
         text=True,
         capture_output=True
